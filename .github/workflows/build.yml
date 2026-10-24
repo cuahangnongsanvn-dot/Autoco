@@ -8,17 +8,142 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-      - name: Tao goi APK
+      - name: Tao ma nguon va bien dich APK
         run: |
-          mkdir -p build_output
-          echo "Auto Co Ngu Hanh - Bot Tu Dong Danh Co" > build_output/README.txt
-          echo "App APK san sang su dung" >> build_output/README.txt
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+          PLATFORM=$(ls -d $ANDROID_HOME/platforms/android-* | tail -n 1)/android.jar
 
-      - name: Upload Artifact
+          mkdir -p src/com/autoco/nguhanh
+          mkdir -p res/values res/xml res/layout bin output
+
+          cat << 'EOF' > AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.autoco.nguhanh"
+              android:versionCode="1"
+              android:versionName="1.0">
+              <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <application android:label="Auto Cờ Ngũ Hành" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".AutoService"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > res/xml/accessibility_service_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeAllMask"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+              android:canPerformGestures="true"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="100" />
+          EOF
+
+          cat << 'EOF' > res/values/strings.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Auto Cờ Ngũ Hành</string>
+          </resources>
+          EOF
+
+          cat << 'EOF' > src/com/autoco/nguhanh/MainActivity.java
+          package com.autoco.nguhanh;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.content.Intent;
+          import android.provider.Settings;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import android.view.Gravity;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setGravity(Gravity.CENTER);
+                  layout.setPadding(40, 40, 40, 40);
+
+                  TextView tv = new TextView(this);
+                  tv.setText("AUTO CỜ NGŨ HÀNH\nƯu tiên: Kiếm > Ngũ Hành > Máu > Bắn Chiêu\n");
+                  tv.setTextSize(16);
+                  tv.setGravity(Gravity.CENTER);
+                  layout.addView(tv);
+
+                  Button btn = new Button(this);
+                  btn.setText("BẬT QUYỀN TRỢ NĂNG (AUTO)");
+                  btn.setOnClickListener(v -> {
+                      startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                  });
+                  layout.addView(btn);
+
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+          cat << 'EOF' > src/com/autoco/nguhanh/AutoService.java
+          package com.autoco.nguhanh;
+          import android.accessibilityservice.AccessibilityService;
+          import android.accessibilityservice.GestureDescription;
+          import android.graphics.Path;
+          import android.view.accessibility.AccessibilityEvent;
+
+          public class AutoService extends AccessibilityService {
+              public static AutoService instance;
+              @Override
+              public void onServiceConnected() {
+                  super.onServiceConnected();
+                  instance = this;
+              }
+              @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+              @Override public void onInterrupt() {}
+
+              public void click(int x, int y) {
+                  Path p = new Path(); p.moveTo(x, y);
+                  GestureDescription.Builder b = new GestureDescription.Builder();
+                  b.addStroke(new GestureDescription.StrokeDescription(p, 0, 50));
+                  dispatchGesture(b.build(), null, null);
+              }
+          }
+          EOF
+
+          javac -d bin -cp $PLATFORM src/com/autoco/nguhanh/*.java
+          $BUILD_TOOLS/d8 bin/com/autoco/nguhanh/*.class --output bin/
+          $BUILD_TOOLS/aapt2 compile --dir res -o bin/res.zip
+          $BUILD_TOOLS/aapt2 link -I $PLATFORM -o bin/unaligned.apk --manifest AndroidManifest.xml bin/res.zip --auto-add-overlay
+          cd bin
+          $BUILD_TOOLS/aapt add unaligned.apk classes.dex
+          $BUILD_TOOLS/zipalign -v -p 4 unaligned.apk AutoCoNguHanh.apk
+          keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android AutoCoNguHanh.apk
+          cp AutoCoNguHanh.apk ../output/
+
+      - name: Xuat file APK cai dat
         uses: actions/upload-artifact@v4
         with:
-          name: AutoCoNguHanh-Package
-          path: build_output/
+          name: AutoCoNguHanh-APK
+          path: output/AutoCoNguHanh.apk
