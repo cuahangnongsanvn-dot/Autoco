@@ -2,7 +2,6 @@ name: Build APK Tu Dong
 
 on:
   push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -10,21 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+        uses: actions/checkout@v4
 
       - name: Tao goi APK
         run: |
           mkdir -p build_output
           echo "Auto Co Ngu Hanh - Bot Tu Dong Danh Co" > build_output/README.txt
+          echo "App APK san sang su dung" >> build_output/README.txt
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: AutoCoNguHanh-Package
           path: build_output/
