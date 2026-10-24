@@ -14,7 +14,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Tao ma nguon va bien dich APK
+      - name: Tao ma nguon Auto Thuc Chien
         run: |
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
           PLATFORM=$(ls -d $ANDROID_HOME/platforms/android-* | tail -n 1)/android.jar
@@ -26,10 +26,11 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               package="com.autoco.nguhanh"
-              android:versionCode="1"
-              android:versionName="1.0">
+              android:versionCode="2"
+              android:versionName="2.0">
               <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
               <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
               <application android:label="Auto Cờ Ngũ Hành" android:theme="@android:style/Theme.Material.Light.NoActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
@@ -77,6 +78,7 @@ jobs:
           import android.widget.LinearLayout;
           import android.widget.TextView;
           import android.view.Gravity;
+          import android.graphics.Color;
 
           public class MainActivity extends Activity {
               @Override
@@ -85,20 +87,33 @@ jobs:
                   LinearLayout layout = new LinearLayout(this);
                   layout.setOrientation(LinearLayout.VERTICAL);
                   layout.setGravity(Gravity.CENTER);
-                  layout.setPadding(40, 40, 40, 40);
+                  layout.setPadding(50, 50, 50, 50);
+                  layout.setBackgroundColor(Color.parseColor("#0f172a"));
 
                   TextView tv = new TextView(this);
-                  tv.setText("AUTO CỜ NGŨ HÀNH\nƯu tiên: Kiếm > Ngũ Hành > Máu > Bắn Chiêu\n");
-                  tv.setTextSize(16);
+                  tv.setText("AUTO CỜ NGŨ HÀNH (V2)\n\nĐã tích hợp Auto Bấm Phím & Bắn Chiêu!\n");
+                  tv.setTextSize(18);
+                  tv.setTextColor(Color.WHITE);
                   tv.setGravity(Gravity.CENTER);
                   layout.addView(tv);
 
-                  Button btn = new Button(this);
-                  btn.setText("BẬT QUYỀN TRỢ NĂNG (AUTO)");
-                  btn.setOnClickListener(v -> {
-                      startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-                  });
-                  layout.addView(btn);
+                  Button btnAcc = new Button(this);
+                  btnAcc.setText("1. BẬT QUYỀN TRỢ NĂNG (BẮT BUỘC)");
+                  btnAcc.setBackgroundColor(Color.parseColor("#0284c7"));
+                  btnAcc.setTextColor(Color.WHITE);
+                  btnAcc.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+                  layout.addView(btnAcc);
+
+                  TextView space = new TextView(this);
+                  space.setText("\n");
+                  layout.addView(space);
+
+                  Button btnFloat = new Button(this);
+                  btnFloat.setText("2. CẤP QUYỀN NÚT NỔI TRÊN GAME");
+                  btnFloat.setBackgroundColor(Color.parseColor("#16a34a"));
+                  btnFloat.setTextColor(Color.WHITE);
+                  btnFloat.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)));
+                  layout.addView(btnFloat);
 
                   setContentView(layout);
               }
@@ -107,26 +122,131 @@ jobs:
 
           cat << 'EOF' > src/com/autoco/nguhanh/AutoService.java
           package com.autoco.nguhanh;
+
           import android.accessibilityservice.AccessibilityService;
           import android.accessibilityservice.GestureDescription;
           import android.graphics.Path;
+          import android.graphics.PixelFormat;
+          import android.graphics.Color;
+          import android.os.Handler;
+          import android.os.Looper;
+          import android.util.DisplayMetrics;
+          import android.view.Gravity;
+          import android.view.WindowManager;
           import android.view.accessibility.AccessibilityEvent;
+          import android.widget.Button;
+          import android.widget.Toast;
 
           public class AutoService extends AccessibilityService {
               public static AutoService instance;
+              private WindowManager windowManager;
+              private Button floatingBtn;
+              private boolean isRunning = false;
+              private Handler handler = new Handler(Looper.getMainLooper());
+              private Runnable autoRunnable;
+
               @Override
               public void onServiceConnected() {
                   super.onServiceConnected();
                   instance = this;
+                  initFloatingButton();
               }
+
               @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
               @Override public void onInterrupt() {}
 
-              public void click(int x, int y) {
+              private void initFloatingButton() {
+                  windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+                  floatingBtn = new Button(this);
+                  floatingBtn.setText("BẬT AUTO");
+                  floatingBtn.setTextSize(12);
+                  floatingBtn.setTextColor(Color.WHITE);
+                  floatingBtn.setBackgroundColor(Color.parseColor("#16a34a"));
+
+                  WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.WRAP_CONTENT,
+                          WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                          PixelFormat.TRANSLUCENT
+                  );
+                  params.gravity = Gravity.CENTER_VERTICAL | Gravity.RIGHT;
+                  params.x = 20;
+
+                  floatingBtn.setOnClickListener(v -> toggleAuto());
+                  try {
+                      windowManager.addView(floatingBtn, params);
+                  } catch (Exception e) {}
+
+                  initLoop();
+              }
+
+              private void toggleAuto() {
+                  isRunning = !isRunning;
+                  if (isRunning) {
+                      floatingBtn.setText("DỪNG [ĐANG AUTO]");
+                      floatingBtn.setBackgroundColor(Color.RED);
+                      Toast.makeText(this, "⚡ ĐANG AUTO TRÁO CỜ & BẮN CHIÊU!", Toast.LENGTH_SHORT).show();
+                      handler.post(autoRunnable);
+                  } else {
+                      floatingBtn.setText("BẬT AUTO");
+                      floatingBtn.setBackgroundColor(Color.parseColor("#16a34a"));
+                      Toast.makeText(this, "ĐÃ DỪNG AUTO", Toast.LENGTH_SHORT).show();
+                      handler.removeCallbacks(autoRunnable);
+                  }
+              }
+
+              private void initLoop() {
+                  autoRunnable = new Runnable() {
+                      int step = 0;
+                      @Override
+                      public void run() {
+                          if (!isRunning) return;
+
+                          DisplayMetrics dm = getResources().getDisplayMetrics();
+                          int w = dm.widthPixels;
+                          int h = dm.heightPixels;
+
+                          // Tọa độ các phím ảo trên J2ME Loader
+                          int k5_x = (int)(w * 0.25f); int k5_y = (int)(h * 0.81f); // Phím 5 (Chọn/Tráo)
+                          int k6_x = (int)(w * 0.40f); int k6_y = (int)(h * 0.81f); // Phím 6 (Sang Phải)
+                          int k8_x = (int)(w * 0.25f); int k8_y = (int)(h * 0.88f); // Phím 8 (Xuống Dưới)
+                          int k4_x = (int)(w * 0.10f); int k4_y = (int)(h * 0.81f); // Phím 4 (Sang Trái)
+                          int kL_x = (int)(w * 0.60f); int kL_y = (int)(h * 0.74f); // Phím L (BẮN TUYỆT KỸ)
+
+                          // Chuỗi tráo cờ và spam bắn chiêu
+                          if (step % 4 == 0) {
+                              dispatchTap(k5_x, k5_y); // Bấm phím 5 chọn ô
+                          } else if (step % 4 == 1) {
+                              // Đổi hướng tráo liên tục để tìm match
+                              int dirX = (step % 8 == 1) ? k6_x : (step % 8 == 5) ? k8_x : k4_x;
+                              int dirY = (step % 8 == 1) ? k6_y : (step % 8 == 5) ? k8_y : k4_y;
+                              dispatchTap(dirX, dirY);
+                          } else if (step % 4 == 2) {
+                              dispatchTap(k5_x, k5_y); // Bấm phím 5 xác nhận tráo
+                          } else if (step % 4 == 3) {
+                              dispatchTap(kL_x, kL_y); // TỰ ĐỘNG BẤM PHÍM L BẮN CHIÊU!
+                          }
+
+                          step++;
+                          handler.postDelayed(this, 140); // Nhịp bấm siêu tốc 0.14 giây
+                      }
+                  };
+              }
+
+              private void dispatchTap(int x, int y) {
                   Path p = new Path(); p.moveTo(x, y);
                   GestureDescription.Builder b = new GestureDescription.Builder();
-                  b.addStroke(new GestureDescription.StrokeDescription(p, 0, 50));
+                  b.addStroke(new GestureDescription.StrokeDescription(p, 0, 40));
                   dispatchGesture(b.build(), null, null);
+              }
+
+              @Override
+              public void onDestroy() {
+                  super.onDestroy();
+                  if (floatingBtn != null && windowManager != null) {
+                      windowManager.removeView(floatingBtn);
+                  }
               }
           }
           EOF
@@ -142,7 +262,7 @@ jobs:
           $BUILD_TOOLS/apksigner sign --ks debug.keystore --ks-pass pass:android AutoCoNguHanh.apk
           cp AutoCoNguHanh.apk ../output/
 
-      - name: Xuat file APK cai dat
+      - name: Xuat file APK Tu Dong Bam
         uses: actions/upload-artifact@v4
         with:
           name: AutoCoNguHanh-APK
